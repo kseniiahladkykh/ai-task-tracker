@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getTaskOwner, setGuestCookie } from "@/lib/task-owner";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,7 @@ type Ctx = { params: { id: string } };
 export async function PATCH(req: Request, context: Ctx) {
   const { id } = context.params;
   try {
+    const owner = await getTaskOwner();
     const body = (await req.json()) as { done?: boolean; title?: string };
     const data: { done?: boolean; title?: string } = {};
 
@@ -21,11 +23,20 @@ export async function PATCH(req: Request, context: Ctx) {
       return NextResponse.json({ error: "Немає полів для оновлення" }, { status: 400 });
     }
 
-    const task = await prisma.task.update({
-      where: { id },
+    const result = await prisma.task.updateMany({
+      where: { id, ...owner.where },
       data,
     });
-    return NextResponse.json(task);
+
+    if (result.count === 0) {
+      return NextResponse.json({ error: "Не знайдено" }, { status: 404 });
+    }
+
+    const task = await prisma.task.findFirst({
+      where: { id, ...owner.where },
+    });
+
+    return setGuestCookie(NextResponse.json(task), owner);
   } catch {
     return NextResponse.json({ error: "Не знайдено або помилка" }, { status: 404 });
   }
@@ -34,8 +45,12 @@ export async function PATCH(req: Request, context: Ctx) {
 export async function DELETE(_req: Request, context: Ctx) {
   const { id } = context.params;
   try {
-    await prisma.task.delete({ where: { id } });
-    return NextResponse.json({ ok: true });
+    const owner = await getTaskOwner();
+    const result = await prisma.task.deleteMany({ where: { id, ...owner.where } });
+    if (result.count === 0) {
+      return NextResponse.json({ error: "Не знайдено" }, { status: 404 });
+    }
+    return setGuestCookie(NextResponse.json({ ok: true }), owner);
   } catch {
     return NextResponse.json({ error: "Не знайдено" }, { status: 404 });
   }

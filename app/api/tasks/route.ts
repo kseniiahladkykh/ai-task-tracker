@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseTaskWithOpenAI } from "@/lib/ai";
+import { getTaskOwner, setGuestCookie } from "@/lib/task-owner";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const owner = await getTaskOwner();
     const tasks = await prisma.task.findMany({
+      where: owner.where,
       orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json(tasks);
+    return setGuestCookie(NextResponse.json(tasks), owner);
   } catch (e) {
     console.error(e);
     return NextResponse.json(
@@ -21,6 +24,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const owner = await getTaskOwner();
     const body = (await req.json()) as { rawInput?: string };
     const rawInput = typeof body.rawInput === "string" ? body.rawInput.trim() : "";
     if (!rawInput) {
@@ -31,6 +35,7 @@ export async function POST(req: Request) {
 
     const task = await prisma.task.create({
       data: {
+        ...owner.data,
         rawInput,
         title: parsed.title,
         priority: parsed.priority,
@@ -38,7 +43,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json(task);
+    return setGuestCookie(NextResponse.json(task), owner);
   } catch (e) {
     console.error(e);
     return NextResponse.json(

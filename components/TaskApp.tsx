@@ -1,5 +1,6 @@
 "use client";
 
+import { signIn, signOut, useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 export type TaskRow = {
@@ -42,6 +43,7 @@ function isOverdue(iso: string | null, done: boolean): boolean {
 }
 
 export default function TaskApp() {
+  const { data: session, status } = useSession();
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -76,7 +78,7 @@ export default function TaskApp() {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, status]);
 
   const visible = useMemo(() => {
     let list = tasks.filter((t) => {
@@ -187,14 +189,43 @@ export default function TaskApp() {
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-4 py-10 pb-24 font-[family-name:var(--font-geist-sans)]">
       <header className="space-y-2">
-        <p className="text-sm font-medium text-violet-600 dark:text-violet-400">
-          AI таск-трекер
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-medium text-violet-600 dark:text-violet-400">
+            AI таск-трекер
+          </p>
+          <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white/70 px-2 py-1 text-xs shadow-sm dark:border-zinc-800 dark:bg-zinc-900/70">
+            <span className="max-w-[180px] truncate px-2 text-zinc-600 dark:text-zinc-300">
+              {status === "loading"
+                ? "Перевіряю профіль…"
+                : session?.user?.email
+                  ? session.user.email
+                  : "Гостьовий режим"}
+            </span>
+            {session?.user ? (
+              <button
+                type="button"
+                onClick={() => signOut({ callbackUrl: "/" })}
+                className="rounded-full bg-zinc-900 px-3 py-1.5 font-semibold text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              >
+                Вийти
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => signIn("google")}
+                className="rounded-full bg-white px-3 py-1.5 font-semibold text-zinc-900 shadow-sm ring-1 ring-zinc-200 transition hover:bg-zinc-50 dark:bg-zinc-800 dark:text-zinc-50 dark:ring-zinc-700"
+              >
+                Увійти через Google
+              </button>
+            )}
+          </div>
+        </div>
         <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
           Пиши як у Slack — решту зробить GPT
         </h1>
         <p className="text-zinc-600 dark:text-zinc-400">
-          Одне поле: назва, дедлайн і пріоритет витягне модель. Без нудних форм.
+          Одне поле: назва, дедлайн і пріоритет витягне модель. Без логіну
+          працює як гостьовий список, після Google — синхрониться з акаунтом.
         </p>
       </header>
 
