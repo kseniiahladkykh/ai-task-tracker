@@ -18,9 +18,45 @@ function parseDeadline(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function priorityFromText(rawInput: string): "high" | "low" | null {
+  const text = rawInput.toLowerCase();
+
+  const urgentSignals = [
+    "терміново",
+    "дуже важливо",
+    "важливо",
+    "asap",
+    "urgent",
+    "critical",
+    "критично",
+    "сьогодні до",
+    "до кінця дня",
+  ];
+
+  if (urgentSignals.some((signal) => text.includes(signal))) return "high";
+
+  const lowSignals = [
+    "не терміново",
+    "без поспіху",
+    "коли буде час",
+    "коли буде вільна хвилина",
+    "якщо буде час",
+    "якщо буде натхнення",
+    "не горить",
+    "колись",
+    "можна якось",
+    "nice to have",
+    "low priority",
+  ];
+
+  if (lowSignals.some((signal) => text.includes(signal))) return "low";
+
+  return null;
+}
+
 export function fallbackParse(rawInput: string): ParsedTaskFields {
   const title = rawInput.trim().split("\n")[0]?.slice(0, 500) || "Без назви";
-  return { title, priority: "medium", deadline: null };
+  return { title, priority: priorityFromText(rawInput) ?? "medium", deadline: null };
 }
 
 export async function parseTaskWithOpenAI(
@@ -45,7 +81,10 @@ export async function parseTaskWithOpenAI(
           content: `You extract a single task from the user's message. Respond ONLY with valid JSON, no markdown, no explanation.
 Required JSON shape: {"title": string, "priority": "high"|"medium"|"low", "deadline": string|null}
 - title: short, clear task name (keep user's language: Ukrainian if they wrote Ukrainian).
-- priority: high for urgent/ASAP/терміново/critical; medium default; low for nice-to-have.
+- priority rules:
+  - high for urgent/ASAP/терміново/critical/дуже важливо/сьогодні до/до кінця дня.
+  - low for nice-to-have, не терміново, не горить, без поспіху, коли буде час, колись, якщо буде натхнення, можна якось.
+  - medium only when the message sounds normal/important but not urgent and not explicitly relaxed.
 - deadline: ISO 8601 datetime string if the user implies a date/time; otherwise null.
 Current datetime (UTC) for reference: ${nowIso}. Interpret relative phrases like "tomorrow", "by lunch", "на вихідних" against this moment.`,
         },
@@ -64,7 +103,7 @@ Current datetime (UTC) for reference: ${nowIso}. Interpret relative phrases like
 
     return {
       title,
-      priority: normalizePriority(data.priority),
+      priority: priorityFromText(rawInput) ?? normalizePriority(data.priority),
       deadline: parseDeadline(data.deadline),
     };
   } catch {
