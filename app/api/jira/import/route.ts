@@ -90,10 +90,10 @@ export async function POST() {
     );
   } catch (e) {
     console.error(e);
+    const details = e instanceof Error ? e.message : "Unknown Jira error";
     return NextResponse.json(
       {
-        error:
-          "Не вдалося імпортувати Jira. Перевір JIRA_BASE_URL, JIRA_EMAIL і JIRA_API_TOKEN у Vercel.",
+        error: `Не вдалося імпортувати Jira: ${details}`,
       },
       { status: 500 }
     );
