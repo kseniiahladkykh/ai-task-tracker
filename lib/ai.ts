@@ -21,42 +21,67 @@ function parseDeadline(v: unknown): Date | null {
 function priorityFromText(rawInput: string): "high" | "low" | null {
   const text = rawInput.toLowerCase();
 
-  const urgentSignals = [
-    "терміново",
-    "дуже важливо",
-    "важливо",
-    "asap",
-    "urgent",
-    "critical",
-    "критично",
-    "сьогодні до",
-    "до кінця дня",
-  ];
-
-  if (urgentSignals.some((signal) => text.includes(signal))) return "high";
-
+  // Check relaxed/negated phrases before urgent words like "терміново".
   const lowSignals = [
     "не терміново",
+    "не дуже терміново",
+    "не дуже важливо",
+    "не критично",
+    "не горить",
+    "без дедлайну",
+    "без фанатизму",
+    "без героїзму",
     "без поспіху",
     "коли буде час",
     "коли буде вільна хвилина",
+    "якщо буде вільна хвилина",
     "якщо буде час",
     "якщо буде натхнення",
-    "не горить",
+    "якщо не переможе диван",
     "колись",
     "можна якось",
+    "можна пізніше",
+    "при нагоді",
+    "для вайбу",
+    "чисто для вайбу",
     "nice to have",
     "low priority",
   ];
 
   if (lowSignals.some((signal) => text.includes(signal))) return "low";
 
+  const urgentSignals = [
+    "дуже терміново",
+    "терміново",
+    "срочно",
+    "негайно",
+    "прям зараз",
+    "якнайшвидше",
+    "asap",
+    "urgent",
+    "critical",
+    "критично",
+    "дуже важливо",
+    "це прям важливо",
+    "high priority",
+    "сьогодні до",
+    "до кінця дня",
+    "до вечора",
+    "дедлайн сьогодні",
+  ];
+
+  if (urgentSignals.some((signal) => text.includes(signal))) return "high";
+
   return null;
 }
 
 export function fallbackParse(rawInput: string): ParsedTaskFields {
   const title = rawInput.trim().split("\n")[0]?.slice(0, 500) || "Без назви";
-  return { title, priority: priorityFromText(rawInput) ?? "medium", deadline: null };
+  return {
+    title,
+    priority: priorityFromText(rawInput) ?? "medium",
+    deadline: null,
+  };
 }
 
 export async function parseTaskWithOpenAI(
@@ -82,8 +107,8 @@ export async function parseTaskWithOpenAI(
 Required JSON shape: {"title": string, "priority": "high"|"medium"|"low", "deadline": string|null}
 - title: short, clear task name (keep user's language: Ukrainian if they wrote Ukrainian).
 - priority rules:
-  - high for urgent/ASAP/терміново/critical/дуже важливо/сьогодні до/до кінця дня.
-  - low for nice-to-have, не терміново, не горить, без поспіху, коли буде час, колись, якщо буде натхнення, можна якось.
+  - high for urgent/ASAP/терміново/срочно/critical/дуже важливо/сьогодні до/до кінця дня/дедлайн сьогодні.
+  - low for nice-to-have, не терміново, не дуже важливо, не критично, не горить, без дедлайну, без фанатизму, без поспіху, коли буде час, колись, якщо буде натхнення, можна якось, при нагоді, для вайбу.
   - medium only when the message sounds normal/important but not urgent and not explicitly relaxed.
 - deadline: ISO 8601 datetime string if the user implies a date/time; otherwise null.
 Current datetime (UTC) for reference: ${nowIso}. Interpret relative phrases like "tomorrow", "by lunch", "на вихідних" against this moment.`,
