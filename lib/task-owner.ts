@@ -41,13 +41,6 @@ export async function getTaskOwner(): Promise<TaskOwner> {
     };
   }
 
-  if (isNewGuest) {
-    await prisma.task.updateMany({
-      where: { userId: null, guestId: null },
-      data: { guestId },
-    });
-  }
-
   return {
     where: { guestId },
     data: { guestId },
