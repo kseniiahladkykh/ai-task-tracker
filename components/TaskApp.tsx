@@ -124,6 +124,11 @@ const tagLabels: Record<string, string> = {
   chaos: "хаос",
 };
 
+const calendarAllowedEmails = new Set([
+  "kseniia.hladkykh@skelar.tech",
+  "kseniia.hladkykh@howly.com",
+]);
+
 function formatDeadline(iso: string | null): string {
   if (!iso) return "без дедлайну";
   try {
@@ -483,10 +488,27 @@ export default function TaskApp() {
     }
   }
 
+  function connectCalendar() {
+    signIn(
+      "google",
+      { callbackUrl: "/" },
+      {
+        scope:
+          "openid email profile https://www.googleapis.com/auth/calendar.readonly",
+        prompt: "consent",
+        access_type: "offline",
+        response_type: "code",
+      }
+    );
+  }
+
   const total = tasks.length;
   const hasAny = total > 0;
   const emptyFiltered = hasAny && visible.length === 0;
   const selectedMood = moods.find((m) => m.id === mood);
+  const canUseCalendar = session?.user?.email
+    ? calendarAllowedEmails.has(session.user.email.toLowerCase())
+    : false;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-4 py-10 pb-24 font-[family-name:var(--font-geist-sans)]">
@@ -705,11 +727,25 @@ export default function TaskApp() {
           <button
             type="button"
             onClick={() => loadCalendar()}
-            disabled={calendarLoading || !session?.user}
+            disabled={calendarLoading || !canUseCalendar}
+            title={
+              canUseCalendar
+                ? "Показати твої найближчі події"
+                : "Calendar доступний тільки для kseniia.hladkykh@skelar.tech / @howly.com"
+            }
             className="rounded-full border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200"
           >
             {calendarLoading ? "Читаю календар…" : "Google Calendar"}
           </button>
+          {canUseCalendar && (
+            <button
+              type="button"
+              onClick={() => connectCalendar()}
+              className="rounded-full border border-indigo-300 bg-white px-4 py-2 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-50 dark:border-indigo-800 dark:bg-zinc-950 dark:text-indigo-200"
+            >
+              Підключити Calendar
+            </button>
+          )}
         </div>
       </form>
 
