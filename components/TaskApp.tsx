@@ -4,6 +4,26 @@ import Image from "next/image";
 import { signIn, signOut, useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
+
 export type TaskRow = {
   id: string;
   rawInput: string;
@@ -17,6 +37,14 @@ export type TaskRow = {
   externalUrl: string | null;
   energy: string;
   tag: string;
+};
+
+type CalendarEvent = {
+  id: string;
+  title: string;
+  start: string | null;
+  end: string | null;
+  url: string | null;
 };
 
 const priorityEmoji: Record<string, string> = {
@@ -113,12 +141,22 @@ function isOverdue(iso: string | null, done: boolean): boolean {
   return new Date(iso).getTime() < Date.now();
 }
 
+function formatEventTime(value: string | null) {
+  if (!value) return "час сховався";
+  return new Intl.DateTimeFormat("uk-UA", {
+    dateStyle: "medium",
+    timeStyle: value.includes("T") ? "short" : undefined,
+  }).format(new Date(value));
+}
+
 export default function TaskApp() {
   const { data: session, status } = useSession();
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [input, setInput] = useState("");
+  const [listening, setListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "done">("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "manual" | "jira">(
@@ -134,6 +172,10 @@ export default function TaskApp() {
   const [editDraft, setEditDraft] = useState("");
   const [recLoading, setRecLoading] = useState(false);
   const [jiraLoading, setJiraLoading] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
   const [panicLoading, setPanicLoading] = useState(false);
   const [quickLoading, setQuickLoading] = useState(false);
   const [breakdownLoading, setBreakdownLoading] = useState(false);
@@ -166,6 +208,14 @@ export default function TaskApp() {
   useEffect(() => {
     load();
   }, [load, status]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setVoiceSupported(
+        Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+      );
+    }
+  }, []);
 
   const visible = useMemo(() => {
     let list = tasks.filter((t) => {
@@ -220,6 +270,34 @@ export default function TaskApp() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function startVoiceInput() {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setError("Голосове введення підтримується не всюди. Chrome каже: я тут головний.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "uk-UA";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      if (transcript) {
+        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      }
+    };
+    recognition.onerror = () => {
+      setError("Не розчула голос. Мікрофон або всесвіт сьогодні проти нас.");
+      setListening(false);
+    };
+    recognition.onend = () => setListening(false);
+    setListening(true);
+    recognition.start();
   }
 
   async function toggleDone(task: TaskRow) {
@@ -387,18 +465,41 @@ export default function TaskApp() {
     }
   }
 
+  async function loadCalendar() {
+    setCalendarOpen(true);
+    setCalendarLoading(true);
+    setCalendarError(null);
+    try {
+      const res = await fetch("/api/calendar/events");
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Calendar refused to cooperate");
+      setCalendarEvents(Array.isArray(j.events) ? j.events : []);
+    } catch (err) {
+      setCalendarError(
+        err instanceof Error ? err.message : "Не вдалося підтягнути календар"
+      );
+    } finally {
+      setCalendarLoading(false);
+    }
+  }
+
   const total = tasks.length;
   const hasAny = total > 0;
   const emptyFiltered = hasAny && visible.length === 0;
   const selectedMood = moods.find((m) => m.id === mood);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-4 py-10 pb-24 font-[family-name:var(--font-geist-sans)]">
-      <header className="space-y-2">
+    <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-8 px-4 py-10 pb-24 font-[family-name:var(--font-geist-sans)]">
+      <header className="overflow-hidden rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6 shadow-2xl shadow-violet-950/30 ring-1 ring-violet-500/20 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm font-medium text-violet-600 dark:text-violet-400">
-            AI таск-трекер
-          </p>
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-violet-300">
+              OMT command center
+            </p>
+            <h1 className="mt-3 text-4xl font-black tracking-tight text-white sm:text-5xl">
+              Oh My Tasks!
+            </h1>
+          </div>
           <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white/70 px-2 py-1 text-xs shadow-sm dark:border-zinc-800 dark:bg-zinc-900/70">
             <span className="max-w-[180px] truncate px-2 text-zinc-600 dark:text-zinc-300">
               {status === "loading"
@@ -426,13 +527,35 @@ export default function TaskApp() {
             )}
           </div>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Пиши як у Slack — решту зробить GPT
-        </h1>
-        <p className="text-zinc-600 dark:text-zinc-400">
-          Одне поле: назва, дедлайн і пріоритет витягне модель. Без логіну
-          працює як гостьовий список, після Google — синхрониться з акаунтом.
+        <p className="mt-4 max-w-2xl text-base text-zinc-300">
+          Brain dump, Jira, mood, panic button і календар в одному місці. Пиши
+          як думаєш, говори як біжиш між мітингами — OMT розкладе хаос по
+          картках.
         </p>
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <p className="text-2xl font-bold text-white">{tasks.length}</p>
+            <p className="text-xs text-zinc-400">усіх задач</p>
+          </div>
+          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3">
+            <p className="text-2xl font-bold text-red-200">
+              {tasks.filter((t) => t.priority === "high" && !t.done).length}
+            </p>
+            <p className="text-xs text-red-100/70">горить</p>
+          </div>
+          <div className="rounded-2xl border border-sky-400/20 bg-sky-500/10 p-3">
+            <p className="text-2xl font-bold text-sky-200">
+              {tasks.filter((t) => t.source === "jira").length}
+            </p>
+            <p className="text-xs text-sky-100/70">з Jira</p>
+          </div>
+          <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3">
+            <p className="text-2xl font-bold text-emerald-200">
+              {tasks.filter((t) => t.done).length}
+            </p>
+            <p className="text-xs text-emerald-100/70">закрито</p>
+          </div>
+        </div>
       </header>
 
       <section className="rounded-2xl border border-zinc-200 bg-white/60 p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60">
@@ -499,21 +622,36 @@ export default function TaskApp() {
         <label className="sr-only" htmlFor="task-input">
           Нова задача
         </label>
-        <textarea
-          id="task-input"
-          rows={3}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder='Наприклад: «Завтра до обіду написати Славі про відео, терміново»'
-          className="w-full resize-y rounded-2xl border border-zinc-200 bg-white/80 px-4 py-3 text-base shadow-sm outline-none ring-violet-500/30 placeholder:text-zinc-400 focus:border-violet-400 focus:ring-4 dark:border-zinc-700 dark:bg-zinc-900/80 dark:focus:border-violet-500"
-        />
+        <div className="rounded-[1.75rem] border border-violet-200/60 bg-white/80 p-3 shadow-xl shadow-violet-950/10 backdrop-blur dark:border-violet-900/60 dark:bg-zinc-950/80">
+          <textarea
+            id="task-input"
+            rows={3}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder='Наприклад: «Завтра до обіду написати Славі про відео, терміново»'
+            className="w-full resize-y rounded-2xl border border-transparent bg-transparent px-3 py-2 text-base outline-none placeholder:text-zinc-400"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/70 pt-3 dark:border-zinc-800">
+            <p className="text-xs text-zinc-500">
+              Natural language або голосом. Без форми з 17 полями, ми не в банку.
+            </p>
+            <button
+              type="button"
+              onClick={() => startVoiceInput()}
+              disabled={!voiceSupported || listening}
+              className="rounded-full border border-pink-300 bg-pink-50 px-4 py-2 text-sm font-semibold text-pink-800 transition hover:bg-pink-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-pink-800 dark:bg-pink-950 dark:text-pink-200"
+            >
+              {listening ? "Слухаю…" : "🎙️ Voice task"}
+            </button>
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
             disabled={submitting || !input.trim()}
-            className="rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/20 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {submitting ? "Думаю…" : "Додати задачу"}
+            {submitting ? "Думаю…" : "Dump task"}
           </button>
           <button
             type="button"
@@ -564,8 +702,72 @@ export default function TaskApp() {
           >
             {jiraLoading ? "Тягну Jira…" : "Імпортувати Jira"}
           </button>
+          <button
+            type="button"
+            onClick={() => loadCalendar()}
+            disabled={calendarLoading || !session?.user}
+            className="rounded-full border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200"
+          >
+            {calendarLoading ? "Читаю календар…" : "Google Calendar"}
+          </button>
         </div>
       </form>
+
+      {calendarOpen && (
+        <section className="rounded-2xl border border-indigo-200 bg-indigo-50/80 p-4 dark:border-indigo-900 dark:bg-indigo-950/40">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-indigo-800 dark:text-indigo-300">
+              Upcoming calendar chaos
+            </h2>
+            <button
+              type="button"
+              onClick={() => setCalendarOpen(false)}
+              className="text-xs font-semibold text-indigo-700 hover:underline dark:text-indigo-300"
+            >
+              сховати
+            </button>
+          </div>
+          {calendarError ? (
+            <p className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-sm text-red-700 dark:bg-zinc-900/80 dark:text-red-300">
+              {calendarError}
+            </p>
+          ) : calendarLoading ? (
+            <p className="mt-3 text-sm text-indigo-700 dark:text-indigo-200">
+              Дивлюсь у календар і намагаюсь не засуджувати…
+            </p>
+          ) : calendarEvents.length === 0 ? (
+            <p className="mt-3 text-sm text-indigo-700 dark:text-indigo-200">
+              Найближчих подій нема. Підозріло, але приємно.
+            </p>
+          ) : (
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {calendarEvents.map((event) => (
+                <li
+                  key={event.id}
+                  className="rounded-xl bg-white/90 px-3 py-2 text-sm dark:bg-zinc-900/90"
+                >
+                  <p className="font-semibold text-zinc-900 dark:text-zinc-100">
+                    {event.title}
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {formatEventTime(event.start)}
+                  </p>
+                  {event.url && (
+                    <a
+                      href={event.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-block text-xs font-semibold text-indigo-700 hover:underline dark:text-indigo-300"
+                    >
+                      відкрити в Calendar
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {(recItems.length > 0 || recMessage) && (
         <section className="rounded-2xl border border-violet-200 bg-violet-50/80 p-4 dark:border-violet-900 dark:bg-violet-950/40">
@@ -692,11 +894,11 @@ export default function TaskApp() {
         <div className="flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-200 bg-white/50 px-8 py-16 text-center dark:border-zinc-700 dark:bg-zinc-900/40">
           <span className="text-4xl">🧠</span>
           <p className="mt-4 text-lg font-semibold text-zinc-800 dark:text-zinc-100">
-            Тут поки порожньо — і це нормально
+            OMT ще не панікує — задач поки нема
           </p>
           <p className="mt-2 max-w-sm text-zinc-600 dark:text-zinc-400">
             Напиши все, що крутиться в голові, одним повідомленням. ШІ розкладе по
-            поличках, а ти сміливо підеш пити какао.
+            поличках, а ти зробиш вигляд, що так і планувалось.
           </p>
         </div>
       ) : emptyFiltered ? (
@@ -837,7 +1039,7 @@ export default function TaskApp() {
       )}
 
       <footer className="mt-auto border-t border-zinc-200 pt-6 text-center text-xs text-zinc-500 dark:border-zinc-800">
-        Зберігання в Neon через Prisma · ключі лише на сервері
+        Oh My Tasks! · Neon + Prisma · AI, Jira, Calendar і трошки емоційної підтримки
       </footer>
     </div>
   );

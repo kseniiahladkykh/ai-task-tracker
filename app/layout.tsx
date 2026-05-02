@@ -15,9 +15,9 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "AI таск-трекер",
+  title: "Oh My Tasks! (OMT)",
   description:
-    "Додавай задачі природньою мовою — GPT розбирає дедлайн і пріоритет.",
+    "Мемний AI command center для задач, Jira, календаря і робочого хаосу.",
 };
 
 export default function RootLayout({

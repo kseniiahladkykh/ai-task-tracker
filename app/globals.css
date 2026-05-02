@@ -16,9 +16,11 @@
 
 body {
   color: var(--foreground);
-  background: radial-gradient(
+  background: radial-gradient(circle at 15% 0%, rgba(236, 72, 153, 0.18), transparent 35%),
+    radial-gradient(circle at 80% 5%, rgba(14, 165, 233, 0.18), transparent 32%),
+    radial-gradient(
       ellipse 120% 80% at 50% -20%,
-      rgba(139, 92, 246, 0.22),
+      rgba(139, 92, 246, 0.28),
       transparent
     ),
     var(--background);
