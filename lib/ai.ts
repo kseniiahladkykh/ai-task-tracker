@@ -4,12 +4,34 @@ export type ParsedTaskFields = {
   title: string;
   priority: "high" | "medium" | "low";
   deadline: Date | null;
+  energy: "brain" | "quick" | "autopilot" | "emotional" | "focus";
+  tag: "work" | "study" | "personal" | "health" | "admin" | "chaos";
 };
 
 function normalizePriority(v: unknown): "high" | "medium" | "low" {
   const s = String(v ?? "").toLowerCase();
   if (s === "high" || s === "medium" || s === "low") return s;
   return "medium";
+}
+
+function normalizeEnergy(
+  v: unknown
+): "brain" | "quick" | "autopilot" | "emotional" | "focus" {
+  const s = String(v ?? "").toLowerCase();
+  if (["brain", "quick", "autopilot", "emotional", "focus"].includes(s)) {
+    return s as "brain" | "quick" | "autopilot" | "emotional" | "focus";
+  }
+  return "focus";
+}
+
+function normalizeTag(
+  v: unknown
+): "work" | "study" | "personal" | "health" | "admin" | "chaos" {
+  const s = String(v ?? "").toLowerCase();
+  if (["work", "study", "personal", "health", "admin", "chaos"].includes(s)) {
+    return s as "work" | "study" | "personal" | "health" | "admin" | "chaos";
+  }
+  return "chaos";
 }
 
 function parseDeadline(v: unknown): Date | null {
@@ -81,6 +103,8 @@ export function fallbackParse(rawInput: string): ParsedTaskFields {
     title,
     priority: priorityFromText(rawInput) ?? "medium",
     deadline: null,
+    energy: "focus",
+    tag: "chaos",
   };
 }
 
@@ -104,13 +128,15 @@ export async function parseTaskWithOpenAI(
         {
           role: "system",
           content: `You extract a single task from the user's message. Respond ONLY with valid JSON, no markdown, no explanation.
-Required JSON shape: {"title": string, "priority": "high"|"medium"|"low", "deadline": string|null}
+Required JSON shape: {"title": string, "priority": "high"|"medium"|"low", "deadline": string|null, "energy": "brain"|"quick"|"autopilot"|"emotional"|"focus", "tag": "work"|"study"|"personal"|"health"|"admin"|"chaos"}
 - title: short, clear task name (keep user's language: Ukrainian if they wrote Ukrainian).
 - priority rules:
   - high for urgent/ASAP/терміново/срочно/critical/дуже важливо/сьогодні до/до кінця дня/дедлайн сьогодні.
   - low for nice-to-have, не терміново, не дуже важливо, не критично, не горить, без дедлайну, без фанатизму, без поспіху, коли буде час, колись, якщо буде натхнення, можна якось, при нагоді, для вайбу.
   - medium only when the message sounds normal/important but not urgent and not explicitly relaxed.
 - deadline: ISO 8601 datetime string if the user implies a date/time; otherwise null.
+- energy: brain for thinking/research/writing/code; quick for <= 5 minute tasks; autopilot for chores/admin; emotional for uncomfortable calls/messages/decisions; focus default.
+- tag: work/study/personal/health/admin/chaos based on task context.
 Current datetime (UTC) for reference: ${nowIso}. Interpret relative phrases like "tomorrow", "by lunch", "на вихідних" against this moment.`,
         },
         { role: "user", content: rawInput.trim().slice(0, 4000) },
@@ -130,10 +156,72 @@ Current datetime (UTC) for reference: ${nowIso}. Interpret relative phrases like
       title,
       priority: priorityFromText(rawInput) ?? normalizePriority(data.priority),
       deadline: parseDeadline(data.deadline),
+      energy: normalizeEnergy(data.energy),
+      tag: normalizeTag(data.tag),
     };
   } catch {
     return fallbackParse(rawInput);
   }
+}
+
+type AiTask = {
+  id: string;
+  title: string;
+  priority: string;
+  deadline: string | null;
+  energy?: string;
+  tag?: string;
+  done?: boolean;
+};
+
+async function jsonAi(prompt: string, payload: unknown) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+
+  const openai = new OpenAI({ apiKey: key });
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.55,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content: `${prompt}\nRespond ONLY with valid JSON, no markdown. Keep Ukrainian language and a friendly meme-ish tone.`,
+      },
+      { role: "user", content: JSON.stringify(payload) },
+    ],
+  });
+
+  const text = completion.choices[0]?.message?.content?.trim();
+  return text ? (JSON.parse(text) as Record<string, unknown>) : null;
+}
+
+export async function getPanicPlan(tasks: AiTask[], mood: string) {
+  return jsonAi(
+    'Create an anti-panic plan. Shape: {"headline": string, "firstStep": string, "nextSteps": string[], "delegateOrDrop": string[], "meme": string}. nextSteps max 4, delegateOrDrop max 3.',
+    { mood, tasks }
+  );
+}
+
+export async function getTwoMinuteTasks(tasks: AiTask[], mood: string) {
+  return jsonAi(
+    'Find tiny tasks doable in about 2 minutes. Shape: {"headline": string, "items": [{"id": string, "reason": string}], "meme": string}. Pick max 5. If none, suggest the smallest first move.',
+    { mood, tasks }
+  );
+}
+
+export async function explainProcrastination(task: AiTask, mood: string) {
+  return jsonAi(
+    'Explain why this task might be procrastinated. Shape: {"reason": string, "tinyFirstStep": string, "meme": string}. Be kind, practical, and slightly funny.',
+    { mood, task }
+  );
+}
+
+export async function breakTaskIntoSubtasks(rawInput: string, mood: string) {
+  return jsonAi(
+    'Break one big task into concrete subtasks. Shape: {"title": string, "subtasks": [{"title": string, "priority": "high"|"medium"|"low", "energy": "brain"|"quick"|"autopilot"|"emotional"|"focus", "tag": "work"|"study"|"personal"|"health"|"admin"|"chaos"}], "meme": string}. Create 3-6 subtasks.',
+    { mood, rawInput }
+  );
 }
 
 export type RecommendItem = { id: string; reason: string };

@@ -14,6 +14,8 @@ export type TaskRow = {
   source: string;
   externalId: string | null;
   externalUrl: string | null;
+  energy: string;
+  tag: string;
 };
 
 const priorityEmoji: Record<string, string> = {
@@ -26,6 +28,35 @@ const priorityRank: Record<string, number> = {
   high: 0,
   medium: 1,
   low: 2,
+};
+
+const moods = [
+  { id: "meme-1", label: "1. зависла", emoji: "🫥" },
+  { id: "meme-2", label: "2. під ковдрою", emoji: "🛌" },
+  { id: "meme-3", label: "3. плачу красиво", emoji: "😭" },
+  { id: "meme-4", label: "4. на кофеїні", emoji: "☕" },
+  { id: "meme-5", label: "5. тихий хаос", emoji: "🐸" },
+  { id: "meme-6", label: "6. гіперфокус", emoji: "👏" },
+  { id: "meme-7", label: "7. fake it", emoji: "😬" },
+  { id: "meme-8", label: "8. підозра", emoji: "🤨" },
+  { id: "meme-9", label: "9. мудрий біль", emoji: "🤧" },
+] as const;
+
+const energyLabels: Record<string, string> = {
+  brain: "🧠 мозок",
+  quick: "⚡ швидко",
+  autopilot: "🧍 автопілот",
+  emotional: "😭 емоційно",
+  focus: "🎯 фокус",
+};
+
+const tagLabels: Record<string, string> = {
+  work: "робота",
+  study: "навчання",
+  personal: "особисте",
+  health: "здоровʼя",
+  admin: "адмінка",
+  chaos: "хаос",
 };
 
 function formatDeadline(iso: string | null): string {
@@ -56,6 +87,8 @@ export default function TaskApp() {
   const [sourceFilter, setSourceFilter] = useState<"all" | "manual" | "jira">(
     "all"
   );
+  const [tagFilter, setTagFilter] = useState<string>("all");
+  const [mood, setMood] = useState<(typeof moods)[number]["id"]>("meme-1");
   const [sort, setSort] = useState<"deadline" | "priority" | "created">(
     "created"
   );
@@ -63,10 +96,19 @@ export default function TaskApp() {
   const [editDraft, setEditDraft] = useState("");
   const [recLoading, setRecLoading] = useState(false);
   const [jiraLoading, setJiraLoading] = useState(false);
+  const [panicLoading, setPanicLoading] = useState(false);
+  const [quickLoading, setQuickLoading] = useState(false);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+  const [coachLoadingId, setCoachLoadingId] = useState<string | null>(null);
   const [recItems, setRecItems] = useState<
     { id: string; title: string; reason: string }[]
   >([]);
   const [recMessage, setRecMessage] = useState<string | null>(null);
+  const [coachCard, setCoachCard] = useState<{
+    title: string;
+    body: string[];
+    meme?: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -98,6 +140,10 @@ export default function TaskApp() {
       list = list.filter((t) => t.source === sourceFilter);
     }
 
+    if (tagFilter !== "all") {
+      list = list.filter((t) => t.tag === tagFilter);
+    }
+
     list = [...list].sort((a, b) => {
       if (sort === "created") {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -113,7 +159,7 @@ export default function TaskApp() {
     });
 
     return list;
-  }, [tasks, filter, sourceFilter, sort]);
+  }, [tasks, filter, sourceFilter, tagFilter, sort]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -193,6 +239,96 @@ export default function TaskApp() {
     }
   }
 
+  async function runCoach(
+    url: string,
+    setBusy: (v: boolean) => void,
+    title: string
+  ) {
+    setBusy(true);
+    setError(null);
+    setCoachCard(null);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mood }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "AI не відповів");
+
+      const body = [
+        j.headline,
+        j.firstStep ? `Перший крок: ${j.firstStep}` : null,
+        ...(Array.isArray(j.nextSteps) ? j.nextSteps : []),
+        ...(Array.isArray(j.delegateOrDrop) && j.delegateOrDrop.length
+          ? [`Відкласти/делегувати: ${j.delegateOrDrop.join(", ")}`]
+          : []),
+        ...(Array.isArray(j.items)
+          ? j.items.map((item: { id?: string; reason?: string }) => {
+              const task = tasks.find((t) => t.id === item.id);
+              return `${task?.title ?? "Мікротаска"} — ${item.reason ?? ""}`;
+            })
+          : []),
+      ].filter(Boolean) as string[];
+
+      setCoachCard({ title, body, meme: j.meme });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI режим не спрацював");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function breakdownTask() {
+    const raw = input.trim();
+    if (!raw || breakdownLoading) return;
+    setBreakdownLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/breakdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rawInput: raw, mood }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Не вдалося розбити");
+      setInput("");
+      setCoachCard({
+        title: j.title ?? "Задача розбита",
+        body: [`Створено підзадач: ${Array.isArray(j.created) ? j.created.length : 0}`],
+        meme: j.meme,
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося розбити задачу");
+    } finally {
+      setBreakdownLoading(false);
+    }
+  }
+
+  async function explainTask(task: TaskRow) {
+    setCoachLoadingId(task.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/procrastination", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, mood }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "AI не пояснив");
+      setCoachCard({
+        title: `Чому відкладається: ${task.title}`,
+        body: [j.reason, `Мікрокрок: ${j.tinyFirstStep}`].filter(Boolean),
+        meme: j.meme,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося пояснити");
+    } finally {
+      setCoachLoadingId(null);
+    }
+  }
+
   async function importJira() {
     setJiraLoading(true);
     setError(null);
@@ -260,6 +396,29 @@ export default function TaskApp() {
         </p>
       </header>
 
+      <section className="rounded-2xl border border-zinc-200 bg-white/60 p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          Which meme are you today?
+        </p>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-9">
+          {moods.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setMood(m.id)}
+              className={`rounded-xl border px-2 py-2 text-center text-xs transition ${
+                mood === m.id
+                  ? "border-violet-500 bg-violet-100 text-violet-900 ring-2 ring-violet-200 dark:bg-violet-950 dark:text-violet-100"
+                  : "border-zinc-200 bg-white/70 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+              }`}
+            >
+              <span className="block text-lg">{m.emoji}</span>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <form onSubmit={handleAdd} className="space-y-3">
         <label className="sr-only" htmlFor="task-input">
           Нова задача
@@ -287,6 +446,34 @@ export default function TaskApp() {
             className="rounded-full border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 transition hover:bg-violet-100 disabled:opacity-50 dark:border-violet-700 dark:bg-violet-950 dark:text-violet-200"
           >
             {recLoading ? "Аналізую список…" : "Що робити зараз?"}
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              runCoach("/api/ai/panic", setPanicLoading, "Антипаніка режим")
+            }
+            disabled={panicLoading}
+            className="rounded-full border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-semibold text-fuchsia-800 transition hover:bg-fuchsia-100 disabled:opacity-50 dark:border-fuchsia-800 dark:bg-fuchsia-950 dark:text-fuchsia-200"
+          >
+            {panicLoading ? "Заспокоюю хаос…" : "Антипаніка"}
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              runCoach("/api/ai/two-minute", setQuickLoading, "2-хвилинний режим")
+            }
+            disabled={quickLoading}
+            className="rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+          >
+            {quickLoading ? "Шукаю мікротаски…" : "2 хвилини"}
+          </button>
+          <button
+            type="button"
+            onClick={() => breakdownTask()}
+            disabled={breakdownLoading || !input.trim()}
+            className="rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          >
+            {breakdownLoading ? "Ріжу жабу…" : "Розбити на підзадачі"}
           </button>
           <button
             type="button"
@@ -331,6 +518,26 @@ export default function TaskApp() {
         </section>
       )}
 
+      {coachCard && (
+        <section className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50/80 p-4 dark:border-fuchsia-900 dark:bg-fuchsia-950/40">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-fuchsia-800 dark:text-fuchsia-300">
+            {coachCard.title}
+          </h2>
+          <ul className="mt-3 space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
+            {coachCard.body.map((line, idx) => (
+              <li key={`${line}-${idx}`} className="rounded-xl bg-white/80 px-3 py-2 dark:bg-zinc-900/80">
+                {line}
+              </li>
+            ))}
+          </ul>
+          {coachCard.meme && (
+            <p className="mt-3 text-sm font-medium text-fuchsia-800 dark:text-fuchsia-200">
+              {coachCard.meme}
+            </p>
+          )}
+        </section>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium uppercase text-zinc-500">Фільтр</span>
         {(["all", "active", "done"] as const).map((f) => (
@@ -362,6 +569,23 @@ export default function TaskApp() {
             }`}
           >
             {source === "all" ? "Усе" : source === "jira" ? "Jira" : "AI"}
+          </button>
+        ))}
+        <span className="ml-2 text-xs font-medium uppercase text-zinc-500">
+          Тег
+        </span>
+        {(["all", "work", "study", "personal", "health", "admin", "chaos"] as const).map((tag) => (
+          <button
+            key={tag}
+            type="button"
+            onClick={() => setTagFilter(tag)}
+            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+              tagFilter === tag
+                ? "bg-violet-700 text-white"
+                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+            }`}
+          >
+            {tag === "all" ? "Усі" : tagLabels[tag]}
           </button>
         ))}
         <span className="ml-2 text-xs font-medium uppercase text-zinc-500">
@@ -479,6 +703,12 @@ export default function TaskApp() {
                           {task.externalId ?? "Відкрити в Jira"}
                         </a>
                       )}
+                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        {energyLabels[task.energy] ?? "🎯 фокус"}
+                      </span>
+                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        #{tagLabels[task.tag] ?? "хаос"}
+                      </span>
                     </div>
                     <p className="mt-1 text-xs text-zinc-500 line-clamp-2 dark:text-zinc-400">
                       Оригінал: {task.rawInput}
@@ -514,6 +744,14 @@ export default function TaskApp() {
                     aria-label="Видалити задачу"
                   >
                     Видалити
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => explainTask(task)}
+                    disabled={coachLoadingId === task.id}
+                    className="rounded-lg px-2 py-1 text-xs font-medium text-violet-600 hover:bg-violet-50 disabled:opacity-50 dark:text-violet-300 dark:hover:bg-violet-950"
+                  >
+                    {coachLoadingId === task.id ? "Думаю…" : "Чому відкладаю?"}
                   </button>
                 </div>
               </li>

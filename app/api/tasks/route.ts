@@ -40,6 +40,8 @@ export async function POST(req: Request) {
         title: parsed.title,
         priority: parsed.priority,
         deadline: parsed.deadline,
+        energy: parsed.energy,
+        tag: parsed.tag,
       },
     });
 

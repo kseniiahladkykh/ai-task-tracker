@@ -18,6 +18,8 @@ model Task {
   source    String    @default("manual")
   externalId  String?
   externalUrl String?
+  energy    String    @default("focus")
+  tag       String    @default("chaos")
 
   userId    String?
   user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -26,6 +28,7 @@ model Task {
   @@index([userId])
   @@index([guestId])
   @@index([source, externalId])
+  @@index([tag])
 }
 
 model User {

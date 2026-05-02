@@ -6,6 +6,8 @@ export type JiraTask = {
   deadline: Date | null;
   done: boolean;
   rawInput: string;
+  energy: "brain" | "quick" | "autopilot" | "emotional" | "focus";
+  tag: "work";
 };
 
 type JiraIssue = {
@@ -88,6 +90,8 @@ export async function fetchAssignedJiraTasks(): Promise<JiraTask[]> {
       deadline: parseDueDate(issue.fields.duedate),
       done: statusKey === "done",
       rawInput: `[Jira ${issue.key}] ${summary}`,
+      energy: "focus",
+      tag: "work",
     };
   });
 }

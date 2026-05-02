@@ -55,6 +55,8 @@ export async function POST() {
             deadline: jiraTask.deadline,
             done: jiraTask.done,
             externalUrl: jiraTask.externalUrl,
+            energy: jiraTask.energy,
+            tag: jiraTask.tag,
           },
         });
         updated += 1;
@@ -70,6 +72,8 @@ export async function POST() {
             priority: jiraTask.priority,
             deadline: jiraTask.deadline,
             done: jiraTask.done,
+            energy: jiraTask.energy,
+            tag: jiraTask.tag,
           },
         });
         created += 1;
