@@ -95,10 +95,10 @@ export async function GET() {
   });
 
   if (!res.ok) {
+    const details = await res.text().catch(() => "");
     return NextResponse.json(
       {
-        error:
-          "Не вдалося прочитати Google Calendar. Спробуй вийти й увійти знову, щоб оновити permission.",
+        error: `Не вдалося прочитати Google Calendar: ${res.status} ${details}`,
       },
       { status: res.status }
     );
