@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { signIn, signOut, useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -31,15 +32,51 @@ const priorityRank: Record<string, number> = {
 };
 
 const moods = [
-  { id: "meme-1", label: "1. зависла", emoji: "🫥" },
-  { id: "meme-2", label: "2. під ковдрою", emoji: "🛌" },
-  { id: "meme-3", label: "3. плачу красиво", emoji: "😭" },
-  { id: "meme-4", label: "4. на кофеїні", emoji: "☕" },
-  { id: "meme-5", label: "5. тихий хаос", emoji: "🐸" },
-  { id: "meme-6", label: "6. гіперфокус", emoji: "👏" },
-  { id: "meme-7", label: "7. fake it", emoji: "😬" },
-  { id: "meme-8", label: "8. підозра", emoji: "🤨" },
-  { id: "meme-9", label: "9. мудрий біль", emoji: "🤧" },
+  {
+    id: "meme-1",
+    label: "1. зависла",
+    advice: "Сьогодні без героїзму: вибери одну маленьку дію і не відкривай 14 нових вкладок.",
+  },
+  {
+    id: "meme-2",
+    label: "2. під ковдрою",
+    advice: "Режим виживання: бери задачі на автопілоті або 2-хвилинні мікрокроки.",
+  },
+  {
+    id: "meme-3",
+    label: "3. плачу красиво",
+    advice: "Почни з задачі, де найменше сорому й найбільше полегшення після виконання.",
+  },
+  {
+    id: "meme-4",
+    label: "4. на кофеїні",
+    advice: "Енергія є, але не рознеси прод: спочатку високий пріоритет, потім красивості.",
+  },
+  {
+    id: "meme-5",
+    label: "5. тихий хаос",
+    advice: "Не довіряємо мозку, довіряємо списку: натисни Антипаніка і роби перший крок.",
+  },
+  {
+    id: "meme-6",
+    label: "6. гіперфокус",
+    advice: "Лови хвилю: бери brain/focus задачу, але постав таймер, щоб не переїхати в задачу жити.",
+  },
+  {
+    id: "meme-7",
+    label: "7. fake it",
+    advice: "Ідеальний день для задач, які треба просто закрити. Не ідеально, зате done.",
+  },
+  {
+    id: "meme-8",
+    label: "8. підозра",
+    advice: "Якщо задача мутна, натисни «Чому відкладаю?» або розбий її на підзадачі.",
+  },
+  {
+    id: "meme-9",
+    label: "9. мудрий біль",
+    advice: "Ти вже все бачив/бачила. Обери найважливіше і зроби спокійно, як людина з character development.",
+  },
 ] as const;
 
 const energyLabels: Record<string, string> = {
@@ -88,7 +125,8 @@ export default function TaskApp() {
     "all"
   );
   const [tagFilter, setTagFilter] = useState<string>("all");
-  const [mood, setMood] = useState<(typeof moods)[number]["id"]>("meme-1");
+  const [mood, setMood] = useState<(typeof moods)[number]["id"] | null>(null);
+  const [moodOpen, setMoodOpen] = useState(false);
   const [sort, setSort] = useState<"deadline" | "priority" | "created">(
     "created"
   );
@@ -251,7 +289,7 @@ export default function TaskApp() {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mood }),
+        body: JSON.stringify({ mood: mood ?? "neutral" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "AI не відповів");
@@ -288,7 +326,7 @@ export default function TaskApp() {
       const res = await fetch("/api/ai/breakdown", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawInput: raw, mood }),
+        body: JSON.stringify({ rawInput: raw, mood: mood ?? "neutral" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Не вдалося розбити");
@@ -313,7 +351,7 @@ export default function TaskApp() {
       const res = await fetch("/api/ai/procrastination", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: task.id, mood }),
+        body: JSON.stringify({ id: task.id, mood: mood ?? "neutral" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "AI не пояснив");
@@ -352,6 +390,7 @@ export default function TaskApp() {
   const total = tasks.length;
   const hasAny = total > 0;
   const emptyFiltered = hasAny && visible.length === 0;
+  const selectedMood = moods.find((m) => m.id === mood);
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-4 py-10 pb-24 font-[family-name:var(--font-geist-sans)]">
@@ -397,26 +436,63 @@ export default function TaskApp() {
       </header>
 
       <section className="rounded-2xl border border-zinc-200 bg-white/60 p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          Which meme are you today?
-        </p>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-9">
-          {moods.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setMood(m.id)}
-              className={`rounded-xl border px-2 py-2 text-center text-xs transition ${
-                mood === m.id
-                  ? "border-violet-500 bg-violet-100 text-violet-900 ring-2 ring-violet-200 dark:bg-violet-950 dark:text-violet-100"
-                  : "border-zinc-200 bg-white/70 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-              }`}
-            >
-              <span className="block text-lg">{m.emoji}</span>
-              {m.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Mood of the Day
+            </p>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Не обовʼязково. Але якщо день вже мем, можна чесно зізнатись.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMoodOpen((v) => !v)}
+            className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-500"
+          >
+            {selectedMood ? selectedMood.label : "Обрати mood"}
+          </button>
         </div>
+
+        {moodOpen && (
+          <div className="mt-4">
+            <div className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800">
+              <Image
+                src="/mood-memes.png"
+                alt="Which meme are you today?"
+                width={700}
+                height={700}
+                className="block w-full"
+              />
+              <div className="absolute inset-x-0 bottom-0 top-[17%] grid grid-cols-3 grid-rows-3">
+                {moods.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      setMood(m.id);
+                      setMoodOpen(false);
+                    }}
+                    aria-label={m.label}
+                    className={`m-1 rounded-xl text-left text-[0px] transition hover:bg-violet-500/10 ${
+                      mood === m.id
+                        ? "border-4 border-violet-500 bg-violet-500/10"
+                        : "border border-transparent"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedMood && (
+          <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 dark:border-violet-900 dark:bg-violet-950/50 dark:text-violet-100">
+            <strong>{selectedMood.label}:</strong> {selectedMood.advice}
+          </div>
+        )}
       </section>
 
       <form onSubmit={handleAdd} className="space-y-3">
