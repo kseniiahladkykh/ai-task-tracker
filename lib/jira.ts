@@ -57,7 +57,7 @@ export async function fetchAssignedJiraTasks(): Promise<JiraTask[]> {
     process.env.JIRA_JQL?.trim() ||
     'assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC, updated DESC';
 
-  const url = new URL(`${baseUrl}/rest/api/3/search`);
+  const url = new URL(`${baseUrl}/rest/api/3/search/jql`);
   url.searchParams.set("jql", jql);
   url.searchParams.set("maxResults", "25");
   url.searchParams.set("fields", "summary,duedate,priority,status");
