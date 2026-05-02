@@ -601,7 +601,7 @@ export default function TaskApp() {
 
         {moodOpen && (
           <div className="mt-4">
-            <div className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800">
+            <div className="relative mx-auto max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800">
               <Image
                 src="/mood-memes.png"
                 alt="Which meme are you today?"
