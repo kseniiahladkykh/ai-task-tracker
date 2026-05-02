@@ -11,6 +11,9 @@ export type TaskRow = {
   deadline: string | null;
   done: boolean;
   createdAt: string;
+  source: string;
+  externalId: string | null;
+  externalUrl: string | null;
 };
 
 const priorityEmoji: Record<string, string> = {
@@ -50,12 +53,16 @@ export default function TaskApp() {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "done">("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "manual" | "jira">(
+    "all"
+  );
   const [sort, setSort] = useState<"deadline" | "priority" | "created">(
     "created"
   );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [recLoading, setRecLoading] = useState(false);
+  const [jiraLoading, setJiraLoading] = useState(false);
   const [recItems, setRecItems] = useState<
     { id: string; title: string; reason: string }[]
   >([]);
@@ -87,6 +94,10 @@ export default function TaskApp() {
       return true;
     });
 
+    if (sourceFilter !== "all") {
+      list = list.filter((t) => t.source === sourceFilter);
+    }
+
     list = [...list].sort((a, b) => {
       if (sort === "created") {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -102,7 +113,7 @@ export default function TaskApp() {
     });
 
     return list;
-  }, [tasks, filter, sort]);
+  }, [tasks, filter, sourceFilter, sort]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -182,6 +193,26 @@ export default function TaskApp() {
     }
   }
 
+  async function importJira() {
+    setJiraLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/jira/import", { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Jira import failed");
+      await load();
+      setSourceFilter("jira");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не вдалося імпортувати задачі з Jira"
+      );
+    } finally {
+      setJiraLoading(false);
+    }
+  }
+
   const total = tasks.length;
   const hasAny = total > 0;
   const emptyFiltered = hasAny && visible.length === 0;
@@ -257,6 +288,19 @@ export default function TaskApp() {
           >
             {recLoading ? "Аналізую список…" : "Що робити зараз?"}
           </button>
+          <button
+            type="button"
+            onClick={() => importJira()}
+            disabled={jiraLoading || !session?.user}
+            title={
+              session?.user
+                ? "Підтягнути задачі з Jira"
+                : "Спочатку увійди через Google"
+            }
+            className="rounded-full border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200"
+          >
+            {jiraLoading ? "Тягну Jira…" : "Імпортувати Jira"}
+          </button>
         </div>
       </form>
 
@@ -301,6 +345,23 @@ export default function TaskApp() {
             }`}
           >
             {f === "all" ? "Усі" : f === "active" ? "Активні" : "Виконані"}
+          </button>
+        ))}
+        <span className="ml-2 text-xs font-medium uppercase text-zinc-500">
+          Джерело
+        </span>
+        {(["all", "manual", "jira"] as const).map((source) => (
+          <button
+            key={source}
+            type="button"
+            onClick={() => setSourceFilter(source)}
+            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+              sourceFilter === source
+                ? "bg-sky-700 text-white"
+                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
+            }`}
+          >
+            {source === "all" ? "Усе" : source === "jira" ? "Jira" : "AI"}
           </button>
         ))}
         <span className="ml-2 text-xs font-medium uppercase text-zinc-500">
@@ -398,6 +459,27 @@ export default function TaskApp() {
                         <span className="align-middle">{task.title}</span>
                       </button>
                     )}
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                          task.source === "jira"
+                            ? "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200"
+                            : "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200"
+                        }`}
+                      >
+                        {task.source === "jira" ? "Jira" : "AI"}
+                      </span>
+                      {task.externalUrl && (
+                        <a
+                          href={task.externalUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-medium text-sky-700 hover:underline dark:text-sky-300"
+                        >
+                          {task.externalId ?? "Відкрити в Jira"}
+                        </a>
+                      )}
+                    </div>
                     <p className="mt-1 text-xs text-zinc-500 line-clamp-2 dark:text-zinc-400">
                       Оригінал: {task.rawInput}
                     </p>

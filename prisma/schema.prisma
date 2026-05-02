@@ -15,6 +15,9 @@ model Task {
   deadline  DateTime?
   done      Boolean   @default(false)
   createdAt DateTime  @default(now())
+  source    String    @default("manual")
+  externalId  String?
+  externalUrl String?
 
   userId    String?
   user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -22,6 +25,7 @@ model Task {
 
   @@index([userId])
   @@index([guestId])
+  @@index([source, externalId])
 }
 
 model User {
